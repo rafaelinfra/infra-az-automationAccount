@@ -1,0 +1,61 @@
+# Subscription and Resource Group of Workspace Databricks
+$SubscriptionId = "xxxxxxxxxxxxx"
+$ResourceGroup = "xxxxxxxxxxxxxx"
+
+$WorkspaceUrl = "https://xxxxxxxxxxxxxxx.azuredatabricks.net/" # dtb-ipp-dev
+$keyVaultName = "xxxxxxxxxxxx"
+$secretName = "xxxxxxxxxxxxxxxxxxx"
+
+# Connect to Azure with system-assigned managed identity
+Connect-AzAccount -Identity
+
+#$AccessToken = (Get-AzKeyVaultSecret -VaultName $keyVaultName -Name $secretName).SecretValueText
+$AccessToken = Get-AzKeyVaultSecret -VaultName $keyVaultName -Name $secretName -AsPlainText
+
+# Ensures you do not inherit an AzContext in your runbook
+Disable-AzContextAutosave -Scope Process
+
+# set and store context
+$AzureContext = Set-AzContext –SubscriptionId $SubscriptionId
+
+# Set of Connection with Workspace Databricks
+Set-DatabricksEnvironment -AccessToken "$AccessToken" -ApiRootUrl "$WorkspaceUrl"
+
+# List All Jobs of Workspace Databricks
+$ListJobs = Get-DatabricksJob | Select-Object job_id, creator_user_name, settings
+
+# Print list all jobs
+Write-Output $ListJobs
+
+$ListJobId = Get-DatabricksJob | Select-Object job_id
+
+Write-Output $ListJobId
+
+# Check list Jobs is Empty
+$CheckJob = Get-DatabricksJob
+
+if($CheckJob -eq $null) {
+    Write-Output ("Não existem Jobs criados")
+    break  
+   
+}else {
+
+#foreach ($Job in $ListJobId)
+foreach ($Job in $ListJobId)
+{
+  # Remove Jobs
+  $JobId = $Job.job_id 
+  Write-Output ("Removendo Job $JobId")
+  Remove-DatabricksJob $JobId
+  
+}
+}
+# Check list Jobs is Empty
+$CheckJob = Get-DatabricksJob
+
+if($CheckJob -eq $null) {
+    Write-Output ("Todos os WorkJobs forem removidos com sucesso!")   
+   
+}else {
+    Write-Output ("Ocorreram problemas na remocao dos Jobs")
+}

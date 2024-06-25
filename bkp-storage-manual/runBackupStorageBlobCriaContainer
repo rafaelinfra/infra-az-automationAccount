@@ -1,0 +1,39 @@
+#Obtido da galeria e modificado para receber parâmetros.
+
+Param (
+    [Parameter (Mandatory=$false)]
+    [String] $rgStorageAccount = "xxxxx",
+
+    [Parameter (Mandatory=$false)]
+    [String] $storageAccount = "xxxxxxxxx",
+
+    [Parameter (Mandatory=$false)]
+    [String] $containerDest = "destino",
+
+    [Parameter (Mandatory=$false)]
+    [String] $containerOrig = "origem",
+
+    [Parameter (Mandatory=$false)]
+    [String] $subscricaoBackup = "xxxxxxxxxx"
+)
+
+$Conn = Get-AutomationConnection -Name AzureRunAsConnection
+
+#Add-AzureRMAccount -ServicePrincipal -Tenant $Conn.TenantID -ApplicationId $Conn.ApplicationID -CertificateThumbprint $Conn.CertificateThumbprint
+
+Connect-AzAccount -CertificateThumbprint $Conn.CertificateThumbprint -ApplicationId $Conn.ApplicationID -Tenant $Conn.TenantID -ServicePrincipal
+
+Set-AzContext -Subscription $subscricaoBackup
+
+$StorageContext = (Get-AzStorageAccount -ResourceGroupName $rgStorageAccount -Name $storageAccount).Context
+
+$containerBackup="30"
+#if ($(Get-Date -format dd) -le 14){$containerBackup="15"}
+
+#$containerBackup = "$($containerDest)-$($containerOrig)-$(Get-Date -format yyyyMM)$containerBackup"
+$containerBackup = "$($containerDest)-$($containerOrig)-$((Get-Date).AddDays(1).toString('yyyyMM'))"
+
+Write-Output "contexto->$StorageContext"
+
+New-AzStorageContainer -Name "$($containerBackup)15" -Context $StorageContext 
+New-AzStorageContainer -Name "$($containerBackup)30" -Context $StorageContext 

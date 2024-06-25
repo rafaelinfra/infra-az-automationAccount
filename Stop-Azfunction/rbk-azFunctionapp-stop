@@ -1,0 +1,48 @@
+Import-Module Az
+
+# Subscription
+$SubscriptionId = Get-AutomationVariable -Name 'SUBSCRIPTIONIDLAB'
+
+# Connect to Azure with system-assigned managed identity
+Connect-AzAccount -Identity
+
+# Ensures you do not inherit an AzContext in your runbook
+Disable-AzContextAutosave -Scope Process
+
+# set context
+Set-AzContext –SubscriptionId $SubscriptionId
+
+$azFunctionapp = Get-AzResource -ResourceType "Microsoft.Web/sites" -Name "<FUNCTION_APP>" -ErrorAction SilentlyContinue
+
+$azFunctionapp | ForEach-Object {
+    $azFunctionappName = $_.name
+    $azFunctionappRG = $_.ResourceGroupName    
+    $listfunctionname = @()
+    $updatedSettings = @{}
+
+    Write-Host "Grupo de Recurso dos Azure Function Apps: $azFunctionappRG"
+    Write-Host "Nome dos Azure Function Apps: $azFunctionappName"
+
+    $functionName = (Get-AzResource -ApiVersion "2022-03-01" -Name $azFunctionappName -ResourceGroupName $azFunctionappRG -ResourceType "Microsoft.Web/sites/functions/" -ExpandProperties )
+
+    foreach ($slipname in $functionName.Name) {
+
+        $nome = $slipname.Split("/")[-1]
+        $listfunctionname += $nome
+
+        $existingSettings = (Get-AzWebApp -ResourceGroupName $azFunctionappRG -Name $azFunctionappName).SiteConfig.AppSettings
+
+        foreach ($entry in $existingSettings.GetEnumerator()) {
+            $key = $entry.Name
+            $value = $entry.Value
+            $updatedSettings[$key] = $value
+        }
+
+        foreach ($functionName in $listfunctionname) {
+            $updatedSettings["AzureWebJobs.$functionName.Disabled"] = "1"
+        }
+
+        set-AzWebApp -ResourceGroupName $azFunctionappRG -Name $azFunctionappName -AppSettings $updatedSettings
+    }
+
+}

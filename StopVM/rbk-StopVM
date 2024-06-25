@@ -1,0 +1,26 @@
+param (
+  
+    [Parameter(Mandatory=$true)] 
+    [String] $VMName,
+
+    [Parameter(Mandatory=$true)] 
+    [String] $ResourceGroupName,
+    #utilizando o varible do próprio recurso
+    [Parameter(Mandatory=$true)]
+    [String] $Subscription
+)
+
+# Subscription
+$SubscriptionId = Get-AutomationVariable -Name $Subscription
+
+# Connect to Azure with system-assigned managed identity
+Connect-AzAccount -Identity
+
+# Ensures you do not inherit an AzContext in your runbook
+Disable-AzContextAutosave -Scope Process
+
+# set context
+Set-AzContext –SubscriptionId $SubscriptionId
+
+# Start a Virtual Machine
+Stop-AzVM -Name $VMName -ResourceGroupName $ResourceGroupName -Force

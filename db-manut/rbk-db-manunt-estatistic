@@ -1,0 +1,18 @@
+write-output "Job execucao Manutencao Estatisticas"
+
+$SQLInstaciaAzure = 'xxxxxxxx'
+$SQLDatabase = 'xxxxxx'
+$SQLUser = 'dxxxxxxk'
+$SQLPassword = 'Xxxxxxxxxxxxxx'
+$SQLConnection = New-Object System.Data.SqlClient.SqlConnection
+$SQLConnection.ConnectionString = "Server=tcp:$SQLInstaciaAzure,1433;Initial Catalog=$SQLDatabase;Persist Security Info=False;User ID=$SQLUser;Password=$SQLPassword;MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;Pooling=false"
+
+$SQLQuery = "dbo.stpTeste_ManutencaoEstatisticas"
+write-output $SQLQuery
+$SQLCmd = New-Object System.Data.SqlClient.SqlCommand($SQLQuery,$SQLConnection)
+$SQLConnection.Open()
+$SQLCmd.CommandTimeout = '0'
+$SQLCmd.ExecuteScalar()
+$SQLConnection.Close()
+
+write-output "Fim Job execucao Manutencao Estatisticas"

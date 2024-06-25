@@ -1,0 +1,53 @@
+param (
+    [Parameter(Mandatory=$true)] 
+    [String] $Subscription,
+    [Parameter(Mandatory=$true)] 
+    [String] $SVC,
+    [Parameter(Mandatory=$true)] 
+    [String] $PWDSVC,
+    [Parameter(Mandatory=$true)] 
+    [String] $FilterGroupName
+)
+
+$ususvc = Get-AutomationVariable -Name $SVC
+$pwdsvc = Get-AutomationVariable -Name $PWDSVC
+$subsId = Get-AutomationVariable -Name $Subscription
+
+az login -u $ususvc -p $pwdsvc
+
+az account set --subscription $subsId
+
+
+#arquivo temporário
+#$tempFilePath = [System.IO.Path]::GetTempFileName()
+$tempFilePath = [System.IO.Path]::ChangeExtension([System.IO.Path]::GetTempFileName(), "csv")
+Write-Output "Path Temporário: '$tempFilePath'"
+
+$header = "NomeCompleto","ID","Nome","Email","Vinculo","Group"
+
+$delimiter = "`t"
+
+#inclusão do cabeçalho
+$header -join $delimiter | Out-File -FilePath $tempFilePath -Encoding UTF8
+
+#Criação de lista com os grupos filtrados
+$filtergroup = az ad group list --filter "startswith(displayName, '$FilterGroupName')" --query '[].{Name:displayName}' --output tsv
+Write-Output "Lista de grupos filtrados:" $filtergroup
+
+# foreach ($test in $teste){
+#     $outtable = az ad group member list --group $test --output table --query '[].{NomeCompleto:displayName, ID:id Nome:givenName, Email:userPrincipalName, Vinculo:jobTitle}' --output tsv
+#     $outtable | ForEach-Object { "$_ `t$test" } >> $csv_file
+# }
+
+foreach ($group in $filtergroup){
+    if ($group -notmatch "^IPP_DATALAKE_POWER"){
+        Write-Output "Lista de grupos :" $group
+        # Obter a saída formatada para o grupo atual
+        $outtable = az ad group member list --group $group --output table --query '[].{NomeCompleto:displayName, ID:id, Nome:givenName, Email:userPrincipalName, Vinculo:jobTitle}' --output tsv
+
+        # Adicionar a coluna de grupo ao resultado
+        $outtable | ForEach-Object { "$_`t$group" } >> $tempFilePath
+    }
+}
+#fazendo o upload do arquivo temporário para o storage de destino
+az storage blob upload --account-name sxxxxd --container-name analytics --name refined/analytics/infracloud/useringroup/usuGroup.csv --type block --file $tempFilePath --auth-mode login --overwrite

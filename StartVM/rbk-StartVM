@@ -1,0 +1,33 @@
+param (
+  
+    [Parameter(Mandatory=$true)] 
+    [String] $VMName,
+    [Parameter(Mandatory=$true)] 
+    [String] $ResourceGroupName,
+    #utilizando o varible do próprio recurso
+    [Parameter(Mandatory=$true)]
+    [String] $Subscription
+)
+# Subscription
+$SubscriptionId = Get-AutomationVariable -Name $Subscription
+
+# Connect to Azure with system-assigned managed identity
+Connect-AzAccount -Identity
+
+# Ensures you do not inherit an AzContext in your runbook
+Disable-AzContextAutosave -Scope Process
+
+# set context
+Set-AzContext –SubscriptionId $SubscriptionId
+
+# Start a Virtual Machine
+$diaDaSemana = (Get-Date).DayOfWeek
+
+#$diaDaSemana = 'Saturday'
+if ($diaDaSemana -ne 'Saturday' -and $diaDaSemana -ne 'Sunday') {
+    # Dia da semana é diferente de sábado e domingo, iniciará a VM
+    Start-AzVM -Name $VMName -ResourceGroupName $ResourceGroupName
+} else {
+    # caso seja positivo para finais de semana, então a vm não será ligada.
+    Write-Host "Não é necessário iniciar a VM no fim de semana."
+}

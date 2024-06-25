@@ -1,0 +1,105 @@
+[OutputType("PSAzureOperationResponse")]
+
+#Parâmetro para receber o valor padrão enviado através do Alert
+param
+(
+    [parameter (Mandatory=$false)]
+    [object] $WebhookData,
+    [parameter (Mandatory=$true)]
+    [string] $dbname,
+    [parameter (Mandatory=$true)]
+    [string] $servername,
+    [parameter (Mandatory=$true)]
+    [string] $ResourceGroupName,
+    [parameter (Mandatory=$false)]
+    [string] $edition,
+    [parameter (Mandatory=$false)]
+    [string] $family,
+    [parameter (Mandatory=$false)]
+    [string] $size,
+    [parameter (Mandatory=$true)]
+    [string] $Subscription,
+    [parameter (Mandatory=$true)]
+    [string] $DefaultCapacity,
+    [parameter (Mandatory=$true)]
+    [string] $MaxCapacity,
+    [parameter (Mandatory=$true)]
+    [string] $metricAlert,
+    [parameter (Mandatory=$false)]
+    [string] $Ncapacity
+
+)
+
+az login --identity
+
+# Subscription
+$SubscriptionId = Get-AutomationVariable -Name $Subscription
+az account set --subscription $SubscriptionId
+
+##Obtendo a capacidade do ambiente atual
+$ConfigSql = az sql db show --name $dbname --resource-group $ResourceGroupName --server $servername -o json | ConvertFrom-Json
+$capacity = $ConfigSql.currentSku.capacity
+
+#Condicional para uso via Schedule onde o update no SQL Database é feito com base em DTU
+if ( (![string]::IsNullOrEmpty($Ncapacity)) -and ([string]::IsNullOrEmpty($family)) ){
+    
+    Write-output "Aplicando Scale para: $Ncapacity"
+    az sql db update -g $ResourceGroupName -n $dbname -s $servername --capacity $Ncapacity
+
+}
+#Condicional para uso via Schedule onde o update no SQL Database é feito com base em VCore
+elseif ((![string]::IsNullOrEmpty($Ncapacity)) -and (![string]::IsNullOrEmpty($family))) {
+    Write-output "Aplicando Scale para: $Ncapacity"
+    az sql db update -g $ResourceGroupName -n $dbname -s $servername --capacity $Ncapacity --family $family
+}
+else {
+    
+    #Trazendo os valores de consulta do alerta
+    $WebhookBody = (ConvertFrom-Json -InputObject $WebhookData.RequestBody)
+    $AlertContext = [object] ($WebhookBody.data).context
+    $Condition = [object] ($AlertContext.condition)
+    $MetricValue = $Condition.allOf[0].metricValue
+    Write-output "RESULTADO: $AlertContext"
+    Write-output "METRIC VALUE: $MetricValue"
+
+    #Caso o parametro Family NÃO tenha valor, o update no SQL Database é feito com base em DTU [Condição para ScaleUp]
+    if ( ($MetricValue -ge $metricAlert) -and ([string]::IsNullOrEmpty($family)) ){
+        if ($capacity -eq $DefaultCapacity){
+            Write-output "Aplicando ScaleUp para o máximo de DTU, Total: $MaxCapacity"
+            az sql db update -g $ResourceGroupName -n $dbname -s $servername --capacity $MaxCapacity
+        }
+        elseif ($capacity -eq $MaxCapacity) {
+            Write-output "Ambiente já com valor máximo de DTU, Total: $MaxCapacity"
+        }
+    }
+    #Caso o parametro Family tenha valor, o update no SQL Database é feito com base em Vcore [Condição para ScaleUp]
+    elseif (($MetricValue -ge $metricAlert) -and (![string]::IsNullOrEmpty($family)) ) {
+        if ($capacity -eq $DefaultCapacity){
+            Write-output "Aplicando ScaleUp para o máximo de VCore, Total: $MaxCapacity"
+            az sql db update -g $ResourceGroupName -n $dbname -s $servername --capacity $MaxCapacity --family $family
+        }
+        elseif ($capacity -eq $MaxCapacity) {
+            Write-output "Ambiente já com valor máximo de VCore, Total: $MaxCapacity"
+        }
+    }
+    #Caso o parametro Family NÃO tenha valor, o update no SQL Database é feito com base em DTU [Condição para ScaleDown]
+    elseif (($MetricValue -lt $metricAlert) -and ([string]::IsNullOrEmpty($family))) {
+        if ($capacity -gt $DefaultCapacity) {
+            Write-output "Aplicando ScaleDown para o valor Default de DTU, Total: $DefaultCapacity"
+            az sql db update -g $ResourceGroupName -n $dbname -s $servername --capacity $DefaultCapacity
+        }
+        elseif ($capacity -eq $DefaultCapacity) {
+            Write-output "Ambiente já com valor Default de DTU, Total: $capacity"
+        }
+    } 
+    #Caso o parametro Family tenha valor, o update no SQL Database é feito com base em Vcore [Condição para ScaleDown]
+    elseif (($MetricValue -lt $metricAlert) -and (![string]::IsNullOrEmpty($family))) {
+        if ($capacity -gt $DefaultCapacity) {
+            Write-output "Aplicando ScaleDown para o valor Default de VCore, Total: $DefaultCapacity"
+            az sql db update -g $ResourceGroupName -n $dbname -s $servername --capacity $DefaultCapacity --family $family
+        }
+        elseif ($capacity -eq $DefaultCapacity) {
+            Write-output "Ambiente já com valor Default de Vcore, Total: $capacity"
+        }
+    } 
+}

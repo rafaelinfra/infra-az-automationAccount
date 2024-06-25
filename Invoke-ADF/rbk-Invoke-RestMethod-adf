@@ -1,0 +1,12 @@
+az login --identity
+
+$teste = az account get-access-token | ConvertFrom-Json
+$token = $teste.accessToken
+
+$baseuri = "https://management.azure.com/subscriptions/xxxxxxxxxxx/resourceGroups/xxxxxxxxx/providers/Microsoft.DataFactory/factories/xxxxxxxxx/pipelines/xxxxxxxxx/createRun?api-version=2018-06-01"
+
+$headers = @{
+    Authorization = "Bearer $token"
+   } 
+
+Invoke-RestMethod -Uri $baseuri -Method Post -Headers $headers

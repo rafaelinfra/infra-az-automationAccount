@@ -1,0 +1,63 @@
+param (
+    [Parameter(Mandatory=$true)] 
+    [String] $SVC,
+    [Parameter(Mandatory=$true)] 
+    [String] $PWDSVC
+)
+
+$ususvc = Get-AutomationVariable -Name $SVC
+$pwdsvc = Get-AutomationVariable -Name $PWDSVC
+
+az login -u $ususvc -p $pwdsvc
+
+$tempFilePath = [System.IO.Path]::ChangeExtension([System.IO.Path]::GetTempFileName(), "csv")
+Write-Output "Path Temporário: '$tempFilePath'"
+
+$resultado = az ad app list --all -o json | ConvertFrom-Json
+
+$teste = $resultado | Where-Object { $_.displayName -like 'app-analytics*' -or $_.displayName -like 'ipiranga-dev*' }
+# Write-Host "Número de itens filtrados:" $teste
+# Write-Host "Número de itens filtrados: $($teste.Count)"
+
+#$teste = az ad app list --filter "startswith(displayName, 'app-analytics')" -o json | ConvertFrom-Json
+
+$credenciaisExpirando15Dias = @()
+$hoje = Get-Date
+
+foreach ($item in $teste) {
+    $displayName = $item.displayName
+    $passwordCredentials = $item.passwordCredentials
+    #$SecretName = $item.passwordCredentials.displayName
+
+    
+    foreach ($credencial in $passwordCredentials) {
+        $dataExpiracao = $credencial.endDateTime
+        $SecretName = $credencial.displayName
+        
+        $diferencaDias = ($dataExpiracao - $hoje).Days
+        #Write-Output $diferencaDias
+        
+        
+        foreach ($dif in $diferencaDias){
+            if ($dif -lt 15) {
+                #Write-Output $displayName
+               
+                $credenciaisExpirando15Dias += [PSCustomObject]@{
+                    AppName = $displayName
+                    SecretName = $SecretName
+                    DataExpiracao = $dataExpiracao
+                }
+                $credenciaisExpirando15Dias | Export-Csv -Path $tempFilePath -NoTypeInformation
+            } 
+        }
+    }
+}
+#$credenciaisExpirando15Dias | Export-Excel -Path $xlsxPath -AutoSize -FreezeTopRow -BoldTopRow -WorksheetName "CredenciaisExpirando15Dias"
+
+
+# $credenciaisExpirando15Dias >> $tempFilePath
+
+az storage blob upload --account-name sxxxxxxxxx --container-name analytics --name rxxxxxxxxxxxxxxx/xxxxxxxxxxxxxxxxx/xxxxxxxxxxxxxxxxxx/credenciaisExpirando15Dias.csv --type block --file $tempFilePath --auth-mode login --overwrite
+
+# resultados
+$credenciaisExpirando15Dias

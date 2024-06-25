@@ -1,0 +1,138 @@
+#Obtido da galeria e modificado para receber parâmetros.
+
+Param (
+    [Parameter (Mandatory=$false)]
+    [String] $subscriptionDescricao = "xxxxxxxx",
+
+    [Parameter (Mandatory=$false)]
+    [String] $rgStorageAccountOrig = "xxxxxxx",
+
+    [Parameter (Mandatory=$false)]
+    [String] $storageAccountOrig = "xxxxxxx",
+
+    [Parameter (Mandatory=$false)]
+    [String] $rgStorageAccountDest = "xxxxxxx",
+
+    [Parameter (Mandatory=$false)]
+    [String] $storageAccountDest = "xxxxxxxxxx",
+
+    [Parameter (Mandatory=$false)]
+    [String] $diretorioInicial = "/",
+
+    [Parameter (Mandatory=$false)]
+    [String] $containerDest = "teste-nv",
+
+    [Parameter (Mandatory=$false)]
+    [String] $containerOrig = "teste-bk",
+
+    [Parameter (Mandatory=$false)]
+    [int] $parallelJobs = 5,
+
+    [Parameter (Mandatory=$false)]
+    [bool] $failOnError = $False
+)
+$ErrorActionPreference = "Stop"
+
+Write-Output "Iniciando backup de $storageAccountOrig - $containerOrig - $diretorioInicial para $rgStorageAccountDest - $containerDest"
+
+$Conn = Get-AutomationConnection -Name AzureRunAsConnection
+
+#Add-AzureRMAccount -ServicePrincipal -Tenant $Conn.TenantID -ApplicationId $Conn.ApplicationID -CertificateThumbprint $Conn.CertificateThumbprint
+
+Connect-AzAccount -CertificateThumbprint $Conn.CertificateThumbprint -ApplicationId $Conn.ApplicationID -Tenant $Conn.TenantID -ServicePrincipal
+
+Set-AzContext -Subscription $subscriptionDescricao
+
+$containerBackup="30"
+if ($(Get-Date -format dd) -le 15){$containerBackup="15"}
+
+$containerBackup = "$($containerDest)-$($containerOrig)-$(Get-Date -format yyyyMM)$containerBackup"
+
+$StorageContextOrig = (Get-AzStorageAccount -ResourceGroupName $rgStorageAccountOrig -Name $storageAccountOrig).Context
+$StorageContextDest = (Get-AzStorageAccount -ResourceGroupName $rgStorageAccountDest -Name $storageAccountDest).Context
+
+Write-Output "Nome do container: $containerBackup"
+Write-Output $StorageContextOrig
+
+$BlobCpyAry = @() #Create array of objects
+
+$stack = New-Object System.Collections.Stack
+
+$MaxReturn = 10000
+$Total = 0
+$TotalDiretorios = 0
+$TotalExistentes = 0
+$Token = $Null
+do
+ {
+    $Blobs = Get-AzStorageBlob -Container $containerOrig -MaxCount $MaxReturn  -ContinuationToken $Token -Context $StorageContextOrig -Prefix $diretorioInicial
+    $Total += $Blobs.Count
+
+    foreach ($Blob in $Blobs){
+        try {
+            #Write-Output "Copiando $($Blob.Name)"
+            $BlobCopy = Start-CopyAzureStorageBlob -Context $StorageContextOrig -SrcContainer $containerOrig -SrcBlob $Blob.Name `
+                -DestContext $StorageContextDest -DestContainer $containerBackup -DestBlob $Blob.Name
+        }
+        catch {
+            #[Microsoft.Azure.Storage.StorageException]{
+            #Precisa tratar todas os erros pois sem o catch sem parâmetros ele não mostra as demais exceções
+            if ($failOnError) { 
+                if ($_.Exception.Message.contains('One of the request inputs is not valid')){
+                    #Write-Output "Deu erro mas não deve parar. Provavel diretório: $($Blob.Name) Exeption: One of the request inputs is not valid"
+                    $TotalDiretorios += 1
+                    $error.Clear()
+                }#AggregateException
+                elseif($_.Exception.toString().contains('Are you sure to overwrite')){
+                    #Write-Output "Deu erro mas não deve parar, ja existe o: $($containerBackup)/$($Blob.Name) Exeption: Are you sure to overwrite?"
+                    $TotalExistentes += 1
+                    $error.Clear()
+                }else{
+                    Write-Output "Deu erro e deve parar: $($Error[0].Exception.GetType().FullName) Exeption: $($_.Exception)"
+                    throw $_.Exception
+                    Break;
+                }
+            }
+        }
+        finally{
+            #Entra aqui mesmo com erro tratado, verifica se o objeto está vazio para não incluir.
+            if ($BlobCopy){
+                $BlobCpyAry += $BlobCopy
+                $stack.Push($BlobCopy)
+            }
+        }
+    }
+    
+    Write-Output  "Total $Total blobs in container $containerOrig. Copiados $($BlobCpyAry.length). Existentes $($TotalExistentes) Diretorios $($TotalDiretorios)"
+
+    if($Blobs.Length -le 0) { Break;}
+    $Token = $Blobs[$blobs.Count -1].ContinuationToken;
+ }
+ While ($Token -ne $Null)
+Write-Output  "Terminado. Total $Total blobs in container $containerOrig. Copiados $($BlobCpyAry.length)"
+
+#$Blobs = Get-AzStorageBlob -Context $StorageContextOrig -Container $containerOrig -Prefix $diretorioInicial
+
+Write-Output "Verificando copias"
+#Verifica termino    
+while ($stack.Count -gt 0) {        
+    $BlobCopy = $stack.Pop()
+    #Write-Output "Verificando copia: $($BlobCopy.Name)"
+    #$BlobCopy|Get-Member
+    if ($BlobCopy){
+        #Could ignore all rest and just run $BlobCopy | Get-AzureStorageBlobCopyState but I prefer output with % copied
+        $CopyState = $BlobCopy | Get-AzStorageBlobCopyState -WaitForComplete
+        if (!$CopyState.Status -eq 'Success'){
+            $Message = $CopyState.Source.AbsolutePath + " " + $CopyState.Status + " {0:N2}%" -f (($CopyState.BytesCopied/$CopyState.TotalBytes)*100) 
+            Write-Output $Message
+        }
+
+        #FIELDS-Aborted	3	-The copy operation has been aborted.
+        #Failed	4	-The copy operation encountered an error.
+        #Invalid	0	-The copy status is invalid.
+        #Pending	1	-The copy operation is pending.
+        #Success	2	-The copy operation succeeded.
+    }
+}
+
+Write-Output  "Terminada a verificação. Total $Total blobs in container $containerOrig. Copiados $($BlobCpyAry.length)"
