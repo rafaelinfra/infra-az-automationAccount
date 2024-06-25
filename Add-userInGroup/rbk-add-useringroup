@@ -1,0 +1,21 @@
+param(
+ [parameter(Mandatory = $true)] 
+ [String] $newUser,
+ [parameter(Mandatory = $true)]
+ [String] $oldUser
+)
+ 
+$user = Get-AutomationVariable -Name 'testeuser'
+$pwd = Get-AutomationVariable -Name 'testepwd'
+ 
+az login -u $user -p $pwd
+$groups = az ad user get-member-groups --id $oldUser -o json | ConvertFrom-Json
+$user = az ad user show --id $newUser -o json | ConvertFrom-Json
+ 
+foreach ($group in $groups) {
+    if ($group.displayName -match "^xxxxxxxxxx_") {
+    write-output $group 
+    $assignments += az ad group member add --group $groups --member-id $user.id -o json | ConvertFrom-Json
+    }
+}
+write-output $assignments
