@@ -1,0 +1,31 @@
+param(
+ [parameter(Mandatory = $true)] 
+ [String] $newUser,
+ [parameter(Mandatory = $true)]
+ [String] $oldUser
+)
+
+##necessário logar no azure via az login ou usuário e senha no automation account
+
+$user = Get-AutomationVariable -Name 'testeuser' ##variavel do automation account
+$pwd = Get-AutomationVariable -Name 'testepwd' ##variavel do automation account
+
+
+az login -u $user -p $pwd
+
+## Duas possibilidades criar um Array ou buscar os grupos automaticamente via o comando abaixo
+
+$groups = az ad user get-member-groups --id $oldUser -o json | ConvertFrom-Json
+
+#trazer a informação do usuário que será colocado nos grupos
+
+$user = az ad user show --id $newUser -o json | ConvertFrom-Json
+
+foreach ($group in $groups) {
+    ## o IF abaixo só é necessário se quiser buscar apenas grupos com uma determinada nomenclatura, utilizar ^ no inicio da nomenclatura.
+    if ($group.displayName -match "<<<<<inicio da nomenclatura>>>>")  {
+    write-output $group 
+    $assignments += az ad group member add --group $groups --member-id $user.id -o json | ConvertFrom-Json
+    }
+}
+write-output $assignments
